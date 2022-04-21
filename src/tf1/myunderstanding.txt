@@ -1,0 +1,1 @@
+tf1 no object detction libary required . in my understanding static graph used so not required in my opinion.

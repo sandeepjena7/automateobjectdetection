@@ -1,29 +1,27 @@
 import cv2
-from pyparsing import line
 import torch
-import torch.backends.cudnn as cudnn
-from numpy import random
-from PIL import Image
+import numpy as np
 from pathlib import Path
+import tensorflow as tf
 
 import sys
 sys.path.insert(0, 'src/yolov5')
 
 from src.yolov5.models.common import DetectMultiBackend
-from src.yolov5.utils.datasets import LoadStreams, LoadImages,IMG_FORMATS, VID_FORMATS
-from src.yolov5.utils.general import (LOGGER, check_file, check_img_size, check_imshow, check_requirements, colorstr, cv2,
-                           increment_path, non_max_suppression, print_args, scale_coords, strip_optimizer, xyxy2xywh)
+from src.yolov5.utils.datasets import  LoadImages,IMG_FORMATS, VID_FORMATS
+from src.yolov5.utils.general import ( check_img_size,  cv2,
+                           non_max_suppression,  scale_coords, )
 from src.yolov5.utils.torch_utils import select_device, time_sync
-from src.yolov5.utils.plots import Annotator, colors, save_one_box
+from src.yolov5.utils.plots import Annotator, colors
 
 from src.detectron2.config import get_cfg
 from src.detectron2.engine import DefaultPredictor
 
+from src.utils.predfilter import detectron_filter,tf1_filter
 
-import tensorflow as tf
 
-from src.tf1.utils import label_map_util
-from src.tf1.utils import visualization_utils as vis_util
+# from src.tf1.utils import label_map_util
+# from src.tf1.utils import visualization_utils as vis_util
 
 
 class YOLO:
@@ -56,7 +54,7 @@ class YOLO:
         self.view_img = view_img
     
     @torch.no_grad()
-    def getpredicton(self):
+    def __call__(self):
         
         source = str(self.source)
         is_file = Path(source).suffix[1:] in (IMG_FORMATS + VID_FORMATS)
@@ -101,13 +99,14 @@ class YOLO:
             for i ,det in enumerate(pred):
                 seen +=1
 
-                p, im0, frame = path, im0s.copy(), getattr(dataset, 'frame', 0)
+                p, im0,  = path, im0s.copy()
 
                 p = Path(p)
                 save_path = str(Path(self.save_dir) / p.name)
                 annotator = Annotator(im0, line_width=3, example=str(names))
 
                 if len(det):
+                    
                     det[:, :4] = scale_coords(im.shape[2:], det[:, :4], im0.shape).round()
 
 
@@ -155,7 +154,8 @@ class Detectron2:
                 ,modelpath="model_final.pth"
                 ,modelyamlpath='faster_rcnn_R_50_FPN_3x.yaml'
                 ,configymlpath="config.yml"
-                ,inputpath="file.jpg"
+                ,inputpath="inputImage.jpg"
+                ,output_json_path = None
                 ,save_dir='workdir'
                 ,img_size = 416
                 ,conf_thres = 0.5
@@ -169,6 +169,7 @@ class Detectron2:
         self.model = modelyamlpath
         self.cfg = get_cfg()
         self.cfg.merge_from_file(configymlpath)
+        self.names = ["Nine", "Ten","jack", "queen", "King", "Ace"]
         self.cfg.MODEL.DEVICE = "cpu"
         self.cfg.MODEL.WEIGHTS = modelpath
         self.cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = float(conf_thres)
@@ -179,8 +180,10 @@ class Detectron2:
         self.hide_labels = hide_labels
         self.hide_conf = hide_conf
         self.view_img = view_img
+    
+    def _read_json(self):pass
 
-    def getpredicton(self):
+    def __call__(self):
         source = str(self.source)
         is_file = Path(source).suffix[1:] in (IMG_FORMATS + VID_FORMATS)
 
@@ -191,82 +194,83 @@ class Detectron2:
         dataset = LoadImages(self.source,img_size=imgsz)
         bs = 1
 
-        names = ["Nine", "Ten","jack", "queen", "King", "Ace"]
-
         vid_path,vid_writer = [None]*bs,[None]*bs
 
         dt, seen = [0.0, 0.0, 0.0], 0
 
         for path,im,im0s,vid_cap,s in dataset:
             t1 = time_sync()
-            seen +=1
 
             img = im.transpose((1,2,0))
-            pred = predictor(img)
-            t2 = time_sync()
-            dt[0] += t2 - t1
+            pred,t2,t3 = predictor(img) # source some modfication
 
-            predictions = pred["instances"].to("cpu")
+            dt[0] += t2 - t1 
+            dt[1] += t3 - t2
 
-            scores = predictions.scores if predictions.has("scores") else None
-            classes = predictions.pred_classes.tolist() if predictions.has("pred_classes") else None
-            bbboxes = predictions.pred_boxes if predictions.has("pred_boxes") else None
+            pred = detectron_filter(pred)
+            dt[2] = time_sync() - t3
 
-            im0 = im0s.copy()
+            for i,det in enumerate(pred):
+                seen +=1
 
-            p = Path(path)
+                im0 = im0s.copy()
 
-            save_path = str(Path(self.save_dir) / p.name)
+                p = Path(path)
 
-            annotator = Annotator(im0,line_width=3)
+                save_path = str(Path(self.save_dir) / p.name)
 
-            bbboxes = scale_coords(im.shape[1:],bbboxes.tensor,im0.shape).round()
-            count = 0
+                annotator = Annotator(im0,line_width=3)
 
-            for *xyxy ,conf,cls in zip(bbboxes,scores,classes):
-                xyxy = xyxy[0]  # fix this issuse bboxes.tensor see
-                if dataset.mode == 'image':
-                    count +=1
+                if len(det):
+                    det = np.array(det) # i have using slice the array
+                    det[:, :4] = scale_coords(im.shape[1:], det[:, :4], im0.shape).round()
 
-                if self.save_img or self.view_img :
-                    c = int(cls)
-                    label = None if self.hide_labels else (names[c] if self.hide_conf else f'{names[c]} {conf:.2f}')
-                    annotator.box_label(xyxy, label, color=colors(c, True))
-            
-            im0 = annotator.result()
+                    for *xyxy ,conf,cls in det:
 
-            if self.view_img:
-                cv2.imshow(str(p),im0)
-                cv2.waitKey(1)
-            
-            if self.save_img:
-                if dataset.mode == 'image':
-                    cv2.imwrite(save_path,im0)
+                        if dataset.mode == 'image':
+                            count =None
 
-                # else:  I have found big bug so donot use bro
-                #     if vid_path[0] != save_path:
-                #         vid_path[0] = save_path
-                        
-                #         if isinstance(vid_writer[0],cv2.VideoWriter):
-                #             vid_writer[0].release()
-                #         if vid_cap:
-                #             fps = vid_cap.get(cv2.CAP_PROP_FPS)
-                #             w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                #             h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                        
-                #         save_path = str(Path(save_path).with_suffix('.mp4'))
-                #         vid_writer[0] = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
-                        
-                #     vid_writer[0].write(im0)
+                        if self.save_img or self.view_img :
+                            c = int(cls)
+                            label = None if self.hide_labels else (self.names[c] if self.hide_conf else f'{self.names[c]} {conf}')
+                            annotator.box_label(xyxy, label, color=colors(c, True))
+                
+                im0 = annotator.result()
+
+                if self.view_img:
+                    cv2.imshow(str(p),im0)
+                    cv2.waitKey(1)
+                
+                if self.save_img:
+                    if dataset.mode == 'image':
+                        cv2.imwrite(save_path,im0)
+
+                    else:  
+                        if vid_path[i] != save_path:
+                            vid_path[i] = save_path
+                            
+                            if isinstance(vid_writer[i],cv2.VideoWriter):
+                                vid_writer[i].release()
+                            if vid_cap:
+                                fps = vid_cap.get(cv2.CAP_PROP_FPS)
+                                w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                                h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                            
+                            save_path = str(Path(save_path).with_suffix('.mp4'))
+                            vid_writer[i] = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
+                            
+                        vid_writer[i].write(im0)
+
+        t = tuple(x / seen * 1E3 for x in dt)
+        print(f'Speed: %.1fms pre-process, %.1fms inference, %.1fms custom NMS per image at shape {(1, 3, imgsz,imgsz)}' % t)
 
 
 
-
-class Tf1: # i have not test bro i have test it tommorrow bro
+class TF1: 
     def __init__(self
-                ,modelpath
-                ,labelmappath
-                ,inputpath
+                ,modelpath="frozen_inference_graph.pb"
+                ,labelmappath="labelmap.pbtxt"
+                ,inputpath="inputImage.jpg"
                 ,save_dir='workdir'
                 ,img_size = 416
                 ,conf_thres = 0.5
@@ -275,7 +279,7 @@ class Tf1: # i have not test bro i have test it tommorrow bro
                 ,hide_labels = False
                 ,view_img = False):
 
-        self.names = read_labelmap(Path(labelmappath)) 
+        self.names = self._read_labelmap(Path(labelmappath)) 
     
         self.conf_thres = float(conf_thres)
         self.source = inputpath
@@ -289,7 +293,7 @@ class Tf1: # i have not test bro i have test it tommorrow bro
         self.detection_graph = tf.Graph()
         with self.detection_graph.as_default():
             od_graph_def = tf.GraphDef()
-            with tf.gfile.GFile(Path(modelpath), 'rb') as fid:
+            with tf.gfile.GFile(modelpath, 'rb') as fid:
                 serialized_graph = fid.read()
                 od_graph_def.ParseFromString(serialized_graph)
                 tf.import_graph_def(od_graph_def, name='')
@@ -301,23 +305,21 @@ class Tf1: # i have not test bro i have test it tommorrow bro
         self.detection_classes = self.detection_graph.get_tensor_by_name('detection_classes:0')
         self.num_detections = self.detection_graph.get_tensor_by_name('num_detections:0')
         
+     
+    def _read_labelmap(self,path):
+        # https://github.com/datitran/raccoon_dataset/pull/93/files
+        # but i have some modification for our requriements
+        names = []
+        with open(Path(path), "r") as file:
+            for line in file:
+                line.replace(" ", "")
+                if "name" in line:
+                    item_name = line.split(":", 1)[1].replace("'", "").strip()
+                    if item_name is not None: 
+                        names.append(item_name)
+        return names
 
-        @staticmethod
-        def read_labelmap(path):
-            # https://github.com/datitran/raccoon_dataset/pull/93/files
-            # but i have some modification for our requriements
-            names = []
-            with open(Path(path), "r") as file:
-                for line in file:
-                    line.replace(" ", "")
-                    if "name" in line:
-                        item_name = line.split(":", 1)[1].replace("'", "").strip()
-                        if item_name is not None: 
-                            names.append(item_name)
-            return names
-
-    def getpredicton(self):
-
+    def __call__(self):
         source = str(self.source)
         is_file = Path(source).suffix[1:] in (IMG_FORMATS + VID_FORMATS)
         assert is_file , "image/video file not found "
@@ -332,56 +334,69 @@ class Tf1: # i have not test bro i have test it tommorrow bro
         dt, seen = [0.0, 0.0, 0.0], 0
 
         for path,im,im0s,vid_cap,s in dataset:
-            seen += 1
+
             t1 = time_sync()
             img = im.transpose((1,2,0))[:, :, ::-1]
+
             
             if len(img.shape) == 3:
                 img = img[None] # expand dims
-            
+            t2 = time_sync()
+            dt[0] += t2 - t1
 
             (boxes, scores, classes, num) = sess.run(
                 [self.detection_boxes,self.detection_scores,self.detection_classes,self.num_detections],
                 feed_dict = {self.image_tensor:img} )
+            t3 = time_sync()
+            dt[1] += t3 - t2
 
-            idxs = [idx for idx in range(0,scores.size) if scores[0,:][idx] > self.conf_thres]
-            clas = [classes[i] for i in idxs]
-            scores = [scores[0,:][idx] for idx in idxs]
-            yxyx_NN = [boxes[0,:][idx]for idx in idxs] # NN - Not Normalized
+            pred = tf1_filter(im,boxes,scores,classes,self.conf_thres)
+            dt[2] += time_sync() - t3
 
-            xyxy_down = []
-
-            for i in yxyx_NN:
-                ymin, xmin, ymax, xmax = i[0],i[1],i[2],i[3]  # in debuging please see the shape width x and height y
-
-                xyxy_ = [ymin*img.shape[2]
-                        ,ymax*img.shape[2]
-                        ,xmin*img.shape[3]
-                        ,xmax*img.shape[3]]
-
-                xyxy_down.append(xyxy_)
+            for i,det in enumerate(pred):
+                seen += 1
             
-            im0 = im0s.copy()
-            p = Path(path)
-            save_path = str(Path(self.save_dir) / p.name)
-            annotator = Annotator(im0,line_width=3)
+                im0 = im0s.copy()
+                p = Path(path)
+                save_path = str(Path(self.save_dir) / p.name)
+                annotator = Annotator(im0,line_width=3)
 
-            bbboxes = scale_coords(im.shape[1:],xyxy_down,im0.shape).round()
+                if len(det):
+                    det = np.array(det)
+                    det[:, :4] = scale_coords(im.shape[1:], det[:, :4], im0.shape).round()
+                    
+                    for *xyxy ,conf,cls in det:
+                        if self.save_img or self.view_img:
+                            c = int(cls)
+                            label = None if self.hide_labels else (self.names[c-1] if self.hide_conf else f'{self.names[c-1]} {conf}')
+                            annotator.box_label(xyxy, label, color=colors(c, True))
 
-            for *xyxy ,conf,cls in zip(bbboxes,scores,clas):
-                if self.save_img or self.view_img:
-                    c = int(cls)
-                    label = None if self.hide_labels else (self.names[c] if self.hide_conf else f'{self.names[c]} {conf:.2f}')
-                    annotator.box_label(xyxy, label, color=colors(c, True))
+                im0 = annotator.result()
 
-            im0 = annotator.result()
+                if self.view_img:
+                    cv2.imshow(str(p),im0)
+                    cv2.waitKey(1)
 
-            if self.view_img:
-                cv2.imshow(str(p),im0)
-                cv2.waitKey(1)
+                
+                if self.save_img:
+                    if dataset.mode == 'image':
+                        cv2.imwrite(save_path,im0)
 
-            
-            if self.save_img:
-                if dataset.mode == 'image':
-                    cv2.imwrite(save_path,im0)
+                    else:  
+                        if vid_path[i] != save_path:
+                            vid_path[i] = save_path
+                            
+                            if isinstance(vid_writer[i],cv2.VideoWriter):
+                                vid_writer[i].release()
+                            if vid_cap:
+                                fps = vid_cap.get(cv2.CAP_PROP_FPS)
+                                w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                                h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                            
+                            save_path = str(Path(save_path).with_suffix('.mp4'))
+                            vid_writer[i] = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
+                            
+                        vid_writer[i].write(im0)
 
+        t = tuple(x / seen * 1E3 for x in dt)
+        print(f'Speed: %.1fms pre-process, %.1fms inference, %.1fms custom NMS per image at shape {(1, 3, imgsz,imgsz)}' % t)

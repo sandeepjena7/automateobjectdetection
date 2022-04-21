@@ -8,7 +8,7 @@ from collections import OrderedDict
 import torch
 from PIL import Image
 
-from src.detectron2.data import MetadataCatalog
+# from src.detectron2.data import MetadataCatalog
 from src.detectron2.utils import comm
 from src.detectron2.utils.file_io import PathManager
 

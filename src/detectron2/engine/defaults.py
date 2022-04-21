@@ -43,7 +43,7 @@ from src.detectron2.utils.env import seed_all_rng
 from src.detectron2.utils.events import CommonMetricPrinter, JSONWriter, TensorboardXWriter
 from src.detectron2.utils.file_io import PathManager
 from src.detectron2.utils.logger import setup_logger
-
+from src.yolov5.utils.torch_utils import time_sync # sandeep
 from . import hooks
 from .train_loop import AMPTrainer, SimpleTrainer, TrainerBase
 
@@ -314,8 +314,10 @@ class DefaultPredictor:
             image = torch.as_tensor(image.astype("float32").transpose(2, 0, 1)) 
 
             inputs = {"image": image, "height": height, "width": width}
+            t2 = time_sync()
             predictions = self.model([inputs])[0]
-            return predictions
+            t3 = time_sync()
+            return predictions,t2,t3
 
 
 class DefaultTrainer(TrainerBase):
