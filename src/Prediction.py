@@ -2,7 +2,7 @@ import cv2
 import torch
 import numpy as np
 from pathlib import Path
-import tensorflow as tf
+# import tensorflow as tf
 import time
 import os
 import json
@@ -181,7 +181,7 @@ class Detectron2:
                 ,save_dir
                 ,output_json_path = None
                 ,img_size = 416
-                ,conf_thres = 0.5
+                ,conf_thres = 0.8
                 ,save_img = True
                 ,hide_conf = False
                 ,hide_labels = False
@@ -212,7 +212,7 @@ class Detectron2:
     def _read_json(self,detectron2trainjonpath):
 
         p = str(Path(detectron2trainjonpath).resolve()) 
-        assert os.path.isfile(p) , 'detectron2 train.json path is not right'
+        assert os.path.isfile(p) , 'detectron2 .json path is not right'
 
         data = json.load(open(p,'r'))
         names = []

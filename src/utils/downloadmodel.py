@@ -66,7 +66,7 @@ class modeldownload(object):
 class Untar(object):
     @staticmethod
     def extract(tarfilepath,desintationpath):
-        print(Fore.CYAN,end='')
+        print(Fore.CYAN,"Untar operation going on")
 
         with tarfile.open(name=tarfilepath) as tar:
 

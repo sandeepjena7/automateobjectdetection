@@ -2,11 +2,8 @@ from flask import Flask, render_template, request, redirect, send_file, url_for,
 from werkzeug.utils import secure_filename, send_from_directory
 from  pathlib import Path
 from src.utils.dirmakes import CreateDirectory
-from run import RUN
 import os
-
-run = RUN()
-
+import shutil
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]
 
@@ -20,9 +17,12 @@ app = Flask(__name__,static_folder=str(static_dir),template_folder=str(templates
 
 @app.route("/")
 def hello_world():
-    return render_template('new.html')
+    return "sss"
+
 
 
 if __name__ == "__main__":
-    port = 8080
-    app.run( port=port)
+    # port = 8080
+    # app.run( port=port)
+    # CreateDirectory.removeshutdown(ROOT)
+    shutil.rmtree("Workdir")
