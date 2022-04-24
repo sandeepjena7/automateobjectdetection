@@ -10,6 +10,7 @@ from src.detectron2.modeling import build_model
 
 
 class _ModelZooUrls(object):
+
     """
     Mapping from names to officially released Detectron2 pre-trained models.
     """

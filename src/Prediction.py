@@ -3,7 +3,9 @@ import torch
 import numpy as np
 from pathlib import Path
 import tensorflow as tf
-
+import time
+import os
+import json
 import sys
 sys.path.insert(0, 'src/yolov5')
 
@@ -18,10 +20,6 @@ from src.detectron2.config import get_cfg
 from src.detectron2.engine import DefaultPredictor
 
 from src.utils.predfilter import detectron_filter,tf1_filter
-
-
-# from src.tf1.utils import label_map_util
-# from src.tf1.utils import visualization_utils as vis_util
 
 
 class YOLO:
@@ -56,6 +54,7 @@ class YOLO:
     @torch.no_grad()
     def __call__(self):
         
+        since = time.time()
         source = str(self.source)
         is_file = Path(source).suffix[1:] in (IMG_FORMATS + VID_FORMATS)
 
@@ -94,26 +93,30 @@ class YOLO:
             pred = non_max_suppression(pred,self.conf_thres,self.iou_thres,agnostic=self.agnostic_nms)
             dt[2] += time_sync() - t3
 
-            bbbox = []
+
 
             for i ,det in enumerate(pred):
+                count = len(det)
+                xmin,ymin,xmax,ymax = [None]*count,[None]*count,[None]*count,[None]*count
                 seen +=1
 
                 p, im0,  = path, im0s.copy()
 
                 p = Path(p)
                 save_path = str(Path(self.save_dir) / p.name)
-                annotator = Annotator(im0, line_width=3, example=str(names))
+                annotator = Annotator(im0, line_width=1, example=str(names))
 
                 if len(det):
                     
                     det[:, :4] = scale_coords(im.shape[2:], det[:, :4], im0.shape).round()
 
 
-                    for *xyxy, conf, cls in reversed(det):
+                    for j,(*xyxy ,conf,cls) in enumerate( det):
 
                         if dataset.mode == 'image':
-                            bbbox.append(xyxy)
+                            
+                            xmin[j], ymin[j],xmax[j],ymax[j] =  int(xyxy[0]), int(xyxy[1]), int(xyxy[2]), int(xyxy[3])
+
 
                         if self.save_img or self.view_img:
                             c = int(cls)  # integer class
@@ -143,20 +146,40 @@ class YOLO:
                             vid_writer[i] = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
                         vid_writer[i].write(im0)
 
+        time_elapsed = time.time() - since
+        time_send = f"{time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s"
         t = tuple(x / seen * 1E3 for x in dt)
-        print(f'Speed: %.1fms pre-process, %.1fms inference, %.1fms NMS per image at shape {(1, 3, imgsz,imgsz)}' % t)
+        print(f'Speed per image :- ::: %.1fms pre-process ::: %.1fms inference ::: %.1fms custom filter ::: per image at reshape {(1, 3, imgsz,imgsz)}' % t)
+        print(":::",f'Predcitition complete in {time_send} ',":::")
+        
+        value = {}
+        value['mode'] = dataset.mode
+        value['time'] = time_send
+        value['path'] = save_path
 
-        return "KGF"
+        if dataset.mode == 'image':
+            if len(xmin): 
+                value['count'] = count
+                value['xmin'],value['ymin'],value['xmax'],value['ymax'] = xmin,ymin,xmax,ymax
+                return value
+
+            else:
+                value['xmin'],value['ymin'],value['xmax'],value['ymax'] = 0,0,0,0
+                return value
+        else:
+            return value
+
+
+
 
 
 class Detectron2:
     def __init__(self
-                ,modelpath="model_final.pth"
-                ,modelyamlpath='faster_rcnn_R_50_FPN_3x.yaml'
-                ,configymlpath="config.yml"
-                ,inputpath="inputImage.jpg"
+                ,modelpath
+                ,configymlpath
+                ,inputpath
+                ,save_dir
                 ,output_json_path = None
-                ,save_dir='workdir'
                 ,img_size = 416
                 ,conf_thres = 0.5
                 ,save_img = True
@@ -166,10 +189,15 @@ class Detectron2:
                 ):
         # bro dont use video for today i fix it tomorrow the send you code  found big bug
         
-        self.model = modelyamlpath
+        # self.model = modelyamlpath
         self.cfg = get_cfg()
         self.cfg.merge_from_file(configymlpath)
-        self.names = ["Nine", "Ten","jack", "queen", "King", "Ace"]
+
+        if output_json_path is not None:
+            self.names = self._read_json(output_json_path)
+        else:
+            self.names = None
+
         self.cfg.MODEL.DEVICE = "cpu"
         self.cfg.MODEL.WEIGHTS = modelpath
         self.cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = float(conf_thres)
@@ -181,9 +209,22 @@ class Detectron2:
         self.hide_conf = hide_conf
         self.view_img = view_img
     
-    def _read_json(self):pass
+    def _read_json(self,detectron2trainjonpath):
+
+        p = str(Path(detectron2trainjonpath).resolve()) 
+        assert os.path.isfile(p) , 'detectron2 train.json path is not right'
+
+        data = json.load(open(p,'r'))
+        names = []
+
+        for cat in data['categories']:
+            names.append(cat['name'])
+
+        return names
 
     def __call__(self):
+
+        since = time.time()
         source = str(self.source)
         is_file = Path(source).suffix[1:] in (IMG_FORMATS + VID_FORMATS)
 
@@ -197,6 +238,7 @@ class Detectron2:
         vid_path,vid_writer = [None]*bs,[None]*bs
 
         dt, seen = [0.0, 0.0, 0.0], 0
+        
 
         for path,im,im0s,vid_cap,s in dataset:
             t1 = time_sync()
@@ -210,7 +252,10 @@ class Detectron2:
             pred = detectron_filter(pred)
             dt[2] = time_sync() - t3
 
+
             for i,det in enumerate(pred):
+                count = len(det)
+                xmin,ymin,xmax,ymax = [None]*count,[None]*count,[None]*count,[None]*count
                 seen +=1
 
                 im0 = im0s.copy()
@@ -219,20 +264,24 @@ class Detectron2:
 
                 save_path = str(Path(self.save_dir) / p.name)
 
-                annotator = Annotator(im0,line_width=3)
+                annotator = Annotator(im0,line_width=1)
 
                 if len(det):
                     det = np.array(det) # i have using slice the array
                     det[:, :4] = scale_coords(im.shape[1:], det[:, :4], im0.shape).round()
 
-                    for *xyxy ,conf,cls in det:
+                    for j,(*xyxy ,conf,cls) in enumerate( det):
 
-                        if dataset.mode == 'image':
-                            count =None
+                        if dataset.mode == 'image':    
+                            xmin[j], ymin[j],xmax[j],ymax[j] =  int(xyxy[0]), int(xyxy[1]), int(xyxy[2]), int(xyxy[3])
+
 
                         if self.save_img or self.view_img :
                             c = int(cls)
-                            label = None if self.hide_labels else (self.names[c] if self.hide_conf else f'{self.names[c]} {conf}')
+                            if self.names is not None:
+                                label = None if self.hide_labels else (self.names[c] if self.hide_conf else f'{self.names[c]} {conf}')
+                            else:
+                                label = None if self.hide_labels else (c if self.hide_conf else f'{c} {conf}')
                             annotator.box_label(xyxy, label, color=colors(c, True))
                 
                 im0 = annotator.result()
@@ -261,17 +310,38 @@ class Detectron2:
                             
                         vid_writer[i].write(im0)
 
+
+        time_elapsed = time.time() - since
+        time_send = f"{time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s"
         t = tuple(x / seen * 1E3 for x in dt)
-        print(f'Speed: %.1fms pre-process, %.1fms inference, %.1fms custom NMS per image at shape {(1, 3, imgsz,imgsz)}' % t)
+        print(f'Speed per image :- ::: %.1fms pre-process ::: %.1fms inference ::: %.1fms custom filter ::: per image at reshape {(1, 3, imgsz,imgsz)}' % t)
+        print(":::",f'Predcitition complete in {time_send} ',":::")
+        
+        value = {}
+        value['mode'] = dataset.mode
+        value['time'] = time_send
+        value['path'] = save_path
+
+        if dataset.mode == 'image':
+            if len(xmin): 
+                value['count'] = count
+                value['xmin'],value['ymin'],value['xmax'],value['ymax'] = xmin,ymin,xmax,ymax
+                return value
+
+            else:
+                value['xmin'],value['ymin'],value['xmax'],value['ymax'] = 0,0,0,0
+                return value
+        else:
+            return value
 
 
 
 class TF1: 
     def __init__(self
-                ,modelpath="frozen_inference_graph.pb"
-                ,labelmappath="labelmap.pbtxt"
-                ,inputpath="inputImage.jpg"
-                ,save_dir='workdir'
+                ,modelpath
+                ,labelmappath
+                ,inputpath
+                ,save_dir
                 ,img_size = 416
                 ,conf_thres = 0.5
                 ,save_img = True
@@ -279,7 +349,7 @@ class TF1:
                 ,hide_labels = False
                 ,view_img = False):
 
-        self.names = self._read_labelmap(Path(labelmappath)) 
+        self.names = self._read_label_map(labelmappath) 
     
         self.conf_thres = float(conf_thres)
         self.source = inputpath
@@ -306,20 +376,38 @@ class TF1:
         self.num_detections = self.detection_graph.get_tensor_by_name('num_detections:0')
         
      
-    def _read_labelmap(self,path):
+    def _read_label_map(self,label_map_path):
         # https://github.com/datitran/raccoon_dataset/pull/93/files
-        # but i have some modification for our requriements
-        names = []
-        with open(Path(path), "r") as file:
+        # also added few line as per our requirements
+        item_id = None
+        item_name = None
+        items = {}
+        p = str(Path(label_map_path).resolve())
+        assert os.path.isfile(p) , "labelmapt path is not right"
+
+        with open(label_map_path, "r") as file:
             for line in file:
                 line.replace(" ", "")
-                if "name" in line:
-                    item_name = line.split(":", 1)[1].replace("'", "").strip()
-                    if item_name is not None: 
-                        names.append(item_name)
-        return names
+                if line == "item{":
+                    pass
+                elif line == "}":
+                    pass
+                elif "id" in line:
+                    item_id = int(line.split(":", 1)[1].strip())
+                elif "name" in line:
+                    item_name = line.split(":", 1)[1].replace("'", "").strip().replace('"'," ")
+
+                if item_id is not None and item_name is not None:
+                    items[item_id] = item_name
+                    item_id = None
+                    item_name = None
+
+        return items
+
 
     def __call__(self):
+
+        since = time.time()
         source = str(self.source)
         is_file = Path(source).suffix[1:] in (IMG_FORMATS + VID_FORMATS)
         assert is_file , "image/video file not found "
@@ -353,22 +441,29 @@ class TF1:
             pred = tf1_filter(im,boxes,scores,classes,self.conf_thres)
             dt[2] += time_sync() - t3
 
+
             for i,det in enumerate(pred):
+                count = len(det)
+                xmin,ymin,xmax,ymax = [None]*count,[None]*count,[None]*count,[None]*count
                 seen += 1
             
                 im0 = im0s.copy()
                 p = Path(path)
                 save_path = str(Path(self.save_dir) / p.name)
-                annotator = Annotator(im0,line_width=3)
+                annotator = Annotator(im0,line_width=1)
 
                 if len(det):
                     det = np.array(det)
                     det[:, :4] = scale_coords(im.shape[1:], det[:, :4], im0.shape).round()
                     
-                    for *xyxy ,conf,cls in det:
+                    for j,(*xyxy ,conf,cls) in enumerate( det):
+
+                        if dataset.mode == 'image': 
+                            xmin[j], ymin[j],xmax[j],ymax[j] =  int(xyxy[0]), int(xyxy[1]), int(xyxy[2]), int(xyxy[3])
+
                         if self.save_img or self.view_img:
                             c = int(cls)
-                            label = None if self.hide_labels else (self.names[c-1] if self.hide_conf else f'{self.names[c-1]} {conf}')
+                            label = None if self.hide_labels else (self.names[c] if self.hide_conf else f'{self.names[c]} {conf}')
                             annotator.box_label(xyxy, label, color=colors(c, True))
 
                 im0 = annotator.result()
@@ -398,5 +493,25 @@ class TF1:
                             
                         vid_writer[i].write(im0)
 
+        time_elapsed = time.time() - since
+        time_send = f"{time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s"
         t = tuple(x / seen * 1E3 for x in dt)
-        print(f'Speed: %.1fms pre-process, %.1fms inference, %.1fms custom NMS per image at shape {(1, 3, imgsz,imgsz)}' % t)
+        print(f'Speed per image :- ::: %.1fms pre-process ::: %.1fms inference ::: %.1fms custom filter ::: per image at reshape {(1, 3, imgsz,imgsz)}' % t)
+        print(":::",f'Predcitition complete in {time_send} ',":::")
+        
+        value = {}
+        value['mode'] = dataset.mode
+        value['time'] = time_send
+        value['path'] = save_path
+
+        if dataset.mode == 'image':
+            if len(xmin): 
+                value['count'] = count
+                value['xmin'],value['ymin'],value['xmax'],value['ymax'] = xmin,ymin,xmax,ymax
+                return value
+
+            else:
+                value['xmin'],value['ymin'],value['xmax'],value['ymax'] = 0,0,0,0
+                return value
+        else:
+            return value

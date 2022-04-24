@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Object Detection</title>
+    <link rel="stylesheet" type="text/css" href="../static/new.css" />
+    <script
+      src="https://code.jquery.com/jquery-3.3.1.min.js"
+      integrity="sha256-FgpCb/KJQlLNfOu91ta32o/NMZxltwRo8QtmkMRdAu8="
+      crossorigin="anonymous"
+    ></script>
+    
+  </head>
+  <body>
+    <div class="App">
+      <header class="App-header">
+        <p><u> Object Detection </u></p>
+        <div className="pre_img">
+          <span><img id="imagebox" src="" /></span>
+        </div> 
+        <div id="link">
+          <a href="" id="download" download>Download</a>
+        </div>
+        <!--          Your browser does not support the video tag. -->
+        <!-- <video width="320" height="240" controls>
+          <source src="{{ url_for('display_video',filename=filename) }}" type="video/mp4" /> 
+        </video> -->
+        <form>
+        <div id="img1"> 
+          <label for="imageinput">Enter the image:</label>
+          <input id="imageinput" type="file" name="image" required="required" onchange="readUrl(this)" />
+        </div> 
+ <!--        <div id="img1"> 
+          <label for="labelmap">Enter the class names:</label>
+          <input id="labelmap" type="file" name="class names" required="required" />
+        </div> -->
+
+<!-- New changes -->    
+
+        <div id="img2" >          
+        </select>
+        <label for="frameworks">Choose a Framework:</label>
+        <select name="frameworks" id="frameworks">
+          <option value="default">-- Choose the framework --</option>
+          <option value="Detectron2">Detectron2</option>
+          <option value="TF1">TF1</option>
+          <option value="TF2">TF2</option>
+          <option value="YOLOV5">YOLOV5</option>
+        </select>
+        
+        <div id="new_img5">
+          <label class="container">Pre trained  
+            <input type="radio" name="radio" value="PRE">  
+            <span class="check"></span>  
+          </label>  
+          <label class="container">Custom Model 
+            <input type="radio" name="radio" value="CUST">  
+            <span class="check"></span>  
+          </label>  
+        </div>
+
+        </div>
+        <div id="img3" > 
+          <div id="img3_b" >  
+          </select>
+          <label for="sub_menu">Choose a Pretrained Model:</label>
+          <select name="sub_menu" id="sub_menu">
+          </select>
+          </div>
+        </div>
+        <div id="img3_a"> 
+          <label for="model_file">upload all model requirements:</label>
+          <input id="model_file" type="file" name="model_file" multiple onchange="readfiles(this)" />
+        </div><br></br>
+
+        <div class="col-md-6 col-xs-12 right-part">
+            <h5 class="mb-2"><center>Prediction Results</center></h5>
+            <div class="row">
+<!--                <div class="res-part2 col-md-5 col-xs-12"></div>  -->
+                <div class="res-part col-md-5 col-xs-12"><div class="jsonRes"></div></div>
+            </div>
+        </div>
+<!-- New changes -->    
+
+        </form>
+        <div id="img1" > 
+        <button name="send" id="sendbutton">Send</button>
+        </div>
+      </header>
+    </div>
+  </body>
+  <script type="text/javascript" src="../static/new.js"></script>
+</html>
