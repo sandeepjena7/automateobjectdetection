@@ -2,7 +2,10 @@ from flask import Flask, render_template, request, redirect, send_file, url_for,
 from werkzeug.utils import secure_filename, send_from_directory
 from  pathlib import Path
 from src.utils.dirmakes import CreateDirectory
+from run import RUN
 import os
+
+run = RUN()
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]
